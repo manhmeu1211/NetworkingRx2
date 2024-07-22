@@ -11,7 +11,7 @@ import UIKit
 public enum NetworkError: Error {
     case invalidURL
     case noData
-    case endoingError
+    case encodingError
     case decodingError
     case serverError(statusCode: Int, data: Data?)
     case unknownError
