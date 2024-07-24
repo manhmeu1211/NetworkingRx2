@@ -66,7 +66,7 @@ struct URLEncoding {
 // MARK: - JSONEncoding
 
 struct JSONEncoding {
-    static func encode(_ request: URLRequest, with parameters: Encodable?, jsonEncoder: JSONEncoder) throws -> URLRequest {
+    static func encode(_ request: URLRequest, with parameters: Encodable?, jsonEncoder: JSONEncoderProtocol) throws -> URLRequest {
         guard let parameters = parameters else { return request }
         
         var encodedURLRequest = request

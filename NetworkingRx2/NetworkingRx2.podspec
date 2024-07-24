@@ -139,5 +139,8 @@ Built with SOLID principles in mind, it offers easy customization and extension.
   # spec.xcconfig = { "HEADER_SEARCH_PATHS" => "$(SDKROOT)/usr/include/libxml2" }
   # spec.dependency "JSONKit", "~> 1.4"
 
+  # Add RxSwift dependency
+  spec.dependency 'RxSwift', '~> 6.7.1'
+  spec.dependency 'RxCocoa', '~> 6.7.1'
   
 end

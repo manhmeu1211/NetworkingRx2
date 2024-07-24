@@ -7,19 +7,20 @@
 
 import Foundation
 import UIKit
+import RxSwift
 
-public protocol NetworkServiceUseCase {
-    func request<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type, completion: @escaping(Result<T, NetworkError>) -> Void)
-    func request(_ endpoint: Endpoint, completion: @escaping(Result<Void, NetworkError>) -> Void)
-    func upload(_ endpoint: Endpoint, data: Data, mimeType: String, completion: @escaping (Result<Data, NetworkError>) -> Void)
-    func download(_ endpoint: Endpoint, completion: @escaping (Result<(Data, URLResponse), NetworkError>) -> Void)
+public protocol NetworkServiceProtocol {
+    func request<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type) -> Observable<T>
+    func request(_ endpoint: Endpoint) -> Completable
+    func upload(_ endpoint: Endpoint, data: Data, mimeType: String) -> Observable<Data>
+    func download(_ endpoint: Endpoint) -> Observable<(Data, URLResponse)>
 }
 
 
-public class NetworkService: NetworkServiceUseCase {
+public class NetworkService: NetworkServiceProtocol {
     private let urlSession: URLSession
-    private let jsonEncoder: JSONEncoder
-    private let jsonDecoder: JSONDecoder
+    private let jsonEncoder: JSONEncoderProtocol
+    private let jsonDecoder: JSONDecoderProtocol
     
     public init(urlSession: URLSession = .shared,
          jsonEncoder: JSONEncoder = JSONEncoder(),
@@ -29,125 +30,172 @@ public class NetworkService: NetworkServiceUseCase {
         self.jsonDecoder = jsonDecoder
     }
     
-    public func request<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type, completion: @escaping (Result<T, NetworkError>) -> Void) {
-        do {
-            let request = try createURLRequest(from: endpoint)
-            let task = urlSession.dataTask(with: request) { [weak self] data, response, error in
-                guard let self = self else { return }
-                
-                if let error = error {
-                    completion(.failure(.unknownError))
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(.failure(.unknownError))
-                    return
-                }
-                
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    completion(.failure(.serverError(statusCode: httpResponse.statusCode, data: data)))
-                    return
-                }
-                
-                guard let data = data else {
-                    completion(.failure(.noData))
-                    return
-                }
-                
-                do {
-                    let decodedResponse = try self.jsonDecoder.decode(T.self, from: data)
-                    completion(.success(decodedResponse))
-                } catch {
-                    completion(.failure(.decodingError))
-                }
+    public func request<T>(_ endpoint: any Endpoint, responseType: T.Type) -> RxSwift.Observable<T> where T : Decodable {
+        return Observable.create { [weak self]observer in
+            guard let `self` = self else {
+                observer.onError(NetworkError.unknownError)
+                return Disposables.create()
             }
-            task.resume()
-        } catch {
-            completion(.failure(.invalidURL))
-        }
-    }
-    
-    public func request(_ endpoint: Endpoint, completion: @escaping (Result<Void, NetworkError>) -> Void) {
-        do {
-            let request = try createURLRequest(from: endpoint)
-            let task = urlSession.dataTask(with: request) { _, response, error in
-                if let error = error {
-                    completion(.failure(.unknownError))
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(.failure(.unknownError))
-                    return
-                }
-                
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    completion(.failure(.serverError(statusCode: httpResponse.statusCode, data: nil)))
-                    return
-                }
-                
-                completion(.success(()))
-            }
-            task.resume()
-        } catch {
-            completion(.failure(.invalidURL))
-        }
-    }
-    
-    public func upload(_ endpoint: Endpoint, data: Data, mimeType: String, completion: @escaping (Result<Data, NetworkError>) -> Void) {
-        do {
-            var request = try createURLRequest(from: endpoint)
-            request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
             
-            let task = urlSession.uploadTask(with: request, from: data) { data, response, error in
-                if let error = error {
-                    completion(.failure(.unknownError))
-                    return
+            do {
+                let request = try self.createURLRequest(from: endpoint)
+                let task = self.urlSession.dataTask(with: request) { data, response, error in
+                    if let error = error {
+                        observer.onError(error)
+                        return
+                    }
+                    
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        observer.onError(NetworkError.unknownError)
+                        return
+                    }
+                    
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        observer.onError(NetworkError.serverError(statusCode: httpResponse.statusCode, data: data))
+                        return
+                    }
+                    
+                    guard let data = data  else {
+                        observer.onError(NetworkError.noData)
+                        return
+                    }
+                    
+                    do {
+                        let decodeResponse = try self.jsonDecoder.decode(T.self, from: data)
+                        observer.onNext(decodeResponse)
+                        observer.onCompleted()
+                    } catch {
+                        observer.onError(NetworkError.decodingError)
+                    }
                 }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(.failure(.unknownError))
-                    return
+                task.resume()
+                return Disposables.create {
+                    task.cancel()
                 }
-                
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    completion(.failure(.serverError(statusCode: httpResponse.statusCode, data: data)))
-                    return
-                }
-                
-                guard let data = data else {
-                    completion(.failure(.noData))
-                    return
-                }
-                
-                completion(.success(data))
+            } catch {
+                observer.onError(NetworkError.invalidURL)
+                return Disposables.create()
             }
-            task.resume()
-        } catch {
-            completion(.failure(.invalidURL))
         }
     }
     
-    public func download(_ endpoint: Endpoint, completion: @escaping (Result<(Data, URLResponse), NetworkError>) -> Void) {
-        do {
-            let request = try createURLRequest(from: endpoint)
-            let task = urlSession.dataTask(with: request) { data, response, error in
-                if let error = error {
-                    completion(.failure(.unknownError))
-                    return
-                }
-                
-                guard let data = data, let response = response else {
-                    completion(.failure(.noData))
-                    return
-                }
-                
-                completion(.success((data, response)))
+    public func request(_ endpoint: any Endpoint) -> RxSwift.Completable {
+        return Completable.create { [weak self] completable in
+            guard let `self` = self else {
+                completable(.error(NetworkError.unknownError))
+                return Disposables.create()
             }
-            task.resume()
-        } catch {
-            completion(.failure(.invalidURL))
+            
+            do {
+                let request = try self.createURLRequest(from: endpoint)
+                let task = self.urlSession.dataTask(with: request) { _, response, error in
+                    if let error = error {
+                        completable(.error(NetworkError.unknownError))
+                        return
+                    }
+                    
+                    guard let httpResponse = response as? HTTPURLResponse  else {
+                        completable(.error(NetworkError.unknownError))
+                        return
+                    }
+                    
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        completable(.error(NetworkError.serverError(statusCode: httpResponse.statusCode, data: nil)))
+                        return
+                    }
+                    
+                    completable(.completed)
+                }
+                task.resume()
+                return Disposables.create {
+                    task.cancel()
+                }
+            } catch {
+                completable(.error(NetworkError.invalidURL))
+                return Disposables.create()
+            }
+        }
+    }
+    
+    public func upload(_ endpoint: any Endpoint, data: Data, mimeType: String) -> RxSwift.Observable<Data> {
+        return Observable.create { [weak self] observer in
+            guard let self = self else {
+                observer.onError(NetworkError.unknownError)
+                return Disposables.create()
+            }
+            
+            do {
+                var request = try self.createURLRequest(from: endpoint)
+                request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+                
+                let task = self.urlSession.uploadTask(with: request, from: data) { data, response, error in
+                    if let error = error {
+                        observer.onError(NetworkError.unknownError)
+                        return
+                    }
+                    
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        observer.onError(NetworkError.unknownError)
+                        return
+                    }
+                    
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        observer.onError(NetworkError.serverError(statusCode: httpResponse.statusCode, data: data))
+                        return
+                    }
+                    
+                    guard let data = data else {
+                        observer.onError(NetworkError.noData)
+                        return
+                    }
+                    
+                    observer.onNext(data)
+                    observer.onCompleted()
+                }
+                task.resume()
+                
+                return Disposables.create {
+                    task.cancel()
+                }
+            } catch {
+                observer.onError(NetworkError.invalidURL)
+                return Disposables.create()
+            }
+        }
+    }
+    
+    public func download(_ endpoint: any Endpoint) -> RxSwift.Observable<(Data, URLResponse)> {
+        return Observable.create { [weak self] observer in
+            guard let self = self else {
+                observer.onError(NetworkError.unknownError)
+                return Disposables.create()
+            }
+            
+            do {
+                let request = try self.createURLRequest(from: endpoint)
+                let task = self.urlSession.dataTask(with: request) { data, response, error in
+                    if let error = error {
+                        observer.onError(NetworkError.unknownError)
+                        return
+                    }
+                    
+                    guard let data = data, let response = response else {
+                        observer.onError(NetworkError.noData)
+                        return
+                    }
+                    
+                    observer.onNext((data, response))
+                    observer.onCompleted()
+                }
+                task.resume()
+                
+                return Disposables.create {
+                    task.cancel()
+                }
+            } catch {
+                observer.onError(NetworkError.invalidURL)
+                return Disposables.create()
+            }
         }
     }
     
@@ -168,7 +216,6 @@ public class NetworkService: NetworkServiceUseCase {
         case .customEncoding(let encoder):
             request.httpBody = encoder()
         }
-        
         return request
     }
 }

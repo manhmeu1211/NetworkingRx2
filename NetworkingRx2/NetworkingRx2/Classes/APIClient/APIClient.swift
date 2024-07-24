@@ -7,34 +7,35 @@
 
 import Foundation
 import UIKit
+import RxSwift
 
-public protocol APIClientUseCase {
-    func performRequest<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type, completion: @escaping (Result<T, NetworkError>) -> Void)
-    func performRequest(_ endpoint: Endpoint, completion: @escaping (Result<Void, NetworkError>) -> Void)
-    func upload(_ endpoint: Endpoint, data: Data, mimeType: String, completion: @escaping (Result<Data, NetworkError>) -> Void)
-    func download(_ endpoint: Endpoint, completion: @escaping (Result<(Data, URLResponse), NetworkError>) -> Void)
+protocol APIClientProtocol {
+    func performRequest<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type) -> Observable<T>
+    func performRequest(_ endpoint: Endpoint) -> Completable
+    func upload(_ endpoint: Endpoint, data: Data, mimeType: String) -> Observable<Data>
+    func download(_ endpoint: Endpoint) -> Observable<(Data, URLResponse)>
 }
 
-public final class APIClient: APIClientUseCase {
-    private let networkService: NetworkServiceUseCase
+class APIClient: APIClientProtocol {
+    private let networkService: NetworkServiceProtocol
     
-    public init(networkService: NetworkServiceUseCase = NetworkService()) {
+    init(networkService: NetworkServiceProtocol = NetworkService()) {
         self.networkService = networkService
     }
     
-    public func performRequest<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type, completion: @escaping (Result<T, NetworkError>) -> Void) {
-        networkService.request(endpoint, responseType: responseType, completion: completion)
+    func performRequest<T: Decodable>(_ endpoint: Endpoint, responseType: T.Type) -> Observable<T> {
+        return networkService.request(endpoint, responseType: responseType)
     }
     
-    public func performRequest(_ endpoint: Endpoint, completion: @escaping (Result<Void, NetworkError>) -> Void) {
-        networkService.request(endpoint, completion: completion)
+    func performRequest(_ endpoint: Endpoint) -> Completable {
+        return networkService.request(endpoint)
     }
     
-    public func upload(_ endpoint: Endpoint, data: Data, mimeType: String, completion: @escaping (Result<Data, NetworkError>) -> Void) {
-        networkService.upload(endpoint, data: data, mimeType: mimeType, completion: completion)
+    func upload(_ endpoint: Endpoint, data: Data, mimeType: String) -> Observable<Data> {
+        return networkService.upload(endpoint, data: data, mimeType: mimeType)
     }
     
-    public func download(_ endpoint: Endpoint, completion: @escaping (Result<(Data, URLResponse), NetworkError>) -> Void) {
-        networkService.download(endpoint, completion: completion)
+    func download(_ endpoint: Endpoint) -> Observable<(Data, URLResponse)> {
+        return networkService.download(endpoint)
     }
 }
