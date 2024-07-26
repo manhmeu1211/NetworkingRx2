@@ -95,8 +95,8 @@ Built with SOLID principles in mind, it offers easy customization and extension.
   #  Not including the public_header_files will make all headers public.
   #
 
-  spec.source_files  = "NetworkingRx2/Classes/**/*.{h,m, Swift}"
-  spec.exclude_files = "Classes/Exclude"
+  spec.source_files = 'NetworkingRx2/Classes/**/*'
+
 
   # spec.public_header_files = "Classes/**/*.h"
 

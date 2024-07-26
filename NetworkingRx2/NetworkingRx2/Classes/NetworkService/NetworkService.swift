@@ -19,8 +19,8 @@ public protocol NetworkServiceProtocol {
 
 public class NetworkService: NetworkServiceProtocol {
     private let urlSession: URLSession
-    private let jsonEncoder: JSONEncoderProtocol
-    private let jsonDecoder: JSONDecoderProtocol
+    private let jsonEncoder: JSONEncoder
+    private let jsonDecoder: JSONDecoder
     
     public init(urlSession: URLSession = .shared,
          jsonEncoder: JSONEncoder = JSONEncoder(),
@@ -31,7 +31,7 @@ public class NetworkService: NetworkServiceProtocol {
     }
     
     public func request<T>(_ endpoint: any Endpoint, responseType: T.Type) -> RxSwift.Observable<T> where T : Decodable {
-        return Observable.create { [weak self]observer in
+        return Observable.create { [weak self] observer in
             guard let `self` = self else {
                 observer.onError(NetworkError.unknownError)
                 return Disposables.create()
@@ -61,10 +61,14 @@ public class NetworkService: NetworkServiceProtocol {
                     }
                     
                     do {
+                        if let jsonString = String(data: data, encoding: .utf8) {
+                            debugPrint("Received JSON: \(jsonString)")
+                        }
                         let decodeResponse = try self.jsonDecoder.decode(T.self, from: data)
                         observer.onNext(decodeResponse)
                         observer.onCompleted()
                     } catch {
+                        debugPrint("Decoding error: \(error)")
                         observer.onError(NetworkError.decodingError)
                     }
                 }
